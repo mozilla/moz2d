@@ -1,38 +1,39 @@
 .PHONY: unittest perftest symlink clean
 
-MOZILLA_DIR = $(shell echo $(MOZILLA))
-OPT_FLAG = $(shell echo $(OPT))
-
-ifeq ($(MOZILLA_DIR),)
-$(error Please set the MOZILLA environment variable to your mozilla source tree.)
+ifeq ($(MOZILLA),)
+$(error Please set the MOZILLA variable to your mozilla source tree.)
 endif
 
 CXX = clang++
+CXX_FLAGS = -std=gnu++0x -Wall
+
+LD = $(CXX)
+LD_FLAGS = $(CXX_FLAGS)
 
 INCLUDES = \
 	-I./local \
 	-I./tests/unit \
 	-I./tests/perf \
-	-I$(MOZILLA_DIR)/gfx/2d \
+	-I$(MOZILLA)/gfx/2d \
 	-I./symlink/A \
 	-I./symlink/B \
 	-I./symlink/C \
 	$(NULL)
 
 DEFINES = USE_SSE2
-CXX_FLAGS = -std=gnu++0x -Wall $(INCLUDES) $(addprefix -D,$(DEFINES))
 
-ifeq ($(OPT_FLAG),1)
+ifdef $(OPT)
 CXX_FLAGS += -O3
 else
 CXX_FLAGS += -g -DDEBUG
 endif
 
-LD = $(CXX)
-LD_FLAGS = $(CXX_FLAGS)
+CXX_FLAGS += $(INCLUDES) $(addprefix -D,$(DEFINES))
+
+
 
 # Tell make where to find the Moz2D sources.
-VPATH = $(MOZILLA_DIR)/gfx/2d
+VPATH = $(MOZILLA)/gfx/2d
 
 BIN = unittest perftest
 
@@ -66,17 +67,32 @@ UNITTEST_SRCS = \
 PERFTEST_SRCS = \
 	$(shell ls ./tests/perf/*.cpp)
 
+ifeq ($(USE_CAIRO),1)
+CXX_FLAGS += $(shell pkg-config --cflags cairo)
+LD_FLAGS += $(shell pkg-config --libs cairo)
+DEFINES  += USE_CAIRO MOZ_ENABLE_FREETYPE
+
+MOZ2D_SRCS += \
+	DrawTargetCairo.cpp \
+	PathCairo.cpp \
+	ScaledFontCairo.cpp \
+	SourceSurfaceCairo.cpp \
+	$(NULL)
+
+PERFTEST_SRCS += \
+	perftest/TestDrawTargetCairoImage.cpp \
+	$(NULL)
+endif
+
 MOZ2D_OBJS = $(MOZ2D_SRCS:.cpp=.o)
 UNITTEST_OBJS = $(UNITTEST_SRCS:.cpp=.o)
 PERFTEST_OBJS = $(PERFTEST_SRCS:.cpp=.o)
 
-unittest: $(MOZ2D_OBJS) $(UNITTEST_OBJS)
-	make symlink
-	$(LD) $(LD_FLAGS) -o $@ $^
+unittest: symlink $(MOZ2D_OBJS) $(UNITTEST_OBJS)
+	$(LD) $(LD_FLAGS) -o $@ $(MOZ2D_OBJS) $(UNITTEST_OBJS)
 
-perftest: $(MOZ2D_OBJS) $(PERFTEST_OBJS)
-	make symlink
-	$(LD) $(LD_FLAGS) -o $@ $^
+perftest: symlink $(MOZ2D_OBJS) $(PERFTEST_OBJS)
+	$(LD) $(LD_FLAGS) -o $@ $(MOZ2D_OBJS) $(UNITTEST_OBJS)
 
 %.o: %.cpp
 	$(CXX) $(CXX_FLAGS) -o $@ -c $<
@@ -84,9 +100,9 @@ perftest: $(MOZ2D_OBJS) $(PERFTEST_OBJS)
 # The mozilla build system copies include headers around. We really don't want to.
 symlink:
 	rm -rf symlink
-	mkdir -p symlink/A && ln -s $(MOZILLA_DIR)/mfbt symlink/A/mozilla
-	mkdir -p symlink/B && ln -s $(MOZILLA_DIR)/gfx/2d symlink/B/mozilla
-	mkdir -p symlink/C/mozilla && ln -s $(MOZILLA_DIR)/gfx/2d symlink/C/mozilla/gfx
+	mkdir -p symlink/A && ln -s $(MOZILLA)/mfbt symlink/A/mozilla
+	mkdir -p symlink/B && ln -s $(MOZILLA)/gfx/2d symlink/B/mozilla
+	mkdir -p symlink/C/mozilla && ln -s $(MOZILLA)/gfx/2d symlink/C/mozilla/gfx
 
 clean:
 	rm -rf symlink *.o *~ tests/unit/*.o tests/perf/*.o $(BIN)
